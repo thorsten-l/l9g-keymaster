@@ -423,7 +423,7 @@ public class KeycloakService
     log.debug("findClientRoleUsageInUsers");
     List<String> usageList = new ArrayList<>();
     
-    List<UserRepresentation> users = listUsers(false);
+    List<UserRepresentation> users = listUsers(log.isDebugEnabled());
     log.debug("{} users found", users.size());
     double start = System.currentTimeMillis();
     for(UserRepresentation user : users)
