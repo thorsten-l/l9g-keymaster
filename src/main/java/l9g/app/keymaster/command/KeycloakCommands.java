@@ -44,6 +44,7 @@ public class KeycloakCommands
   public void listUsers()
     throws Throwable
   {
+    log.debug("listUsers");
     keycloakService.listUsers(true);
   }
 

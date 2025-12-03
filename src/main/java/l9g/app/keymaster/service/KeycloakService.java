@@ -145,7 +145,7 @@ public class KeycloakService
   public List<UserRepresentation> listUsers(boolean debug)
     throws IOException
   {
-    log.debug("users");
+    log.debug("listUsers");
     double start = System.currentTimeMillis();
 
     List<UserRepresentation> allUsers = userService.users();

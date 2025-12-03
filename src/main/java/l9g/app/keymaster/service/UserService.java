@@ -31,7 +31,7 @@ import org.springframework.stereotype.Service;
 public class UserService
 {
   private final static int PAGE_SIZE = 100;
-  
+
   private final String realm;
 
   private final Keycloak keycloak;
@@ -44,18 +44,23 @@ public class UserService
     keycloak = keycloakConnection.getKeycloak();
   }
 
-  public synchronized List<UserRepresentation> users(boolean reload)
+  public List<UserRepresentation> users(boolean reload)
   {
+    log.debug("users({})", reload);
+
     if(reload || users.isEmpty())
     {
       users.clear();
       int numberOfUsers = keycloak.realm(realm).users().count();
+      log.debug("numberOfUsers={}", numberOfUsers);
       int index = 0;
       List<UserRepresentation> usersPage;
       do
       {
+        log.debug("index={}", index);
         usersPage = keycloak.realm(realm).users().list(index, (numberOfUsers
           - index >= PAGE_SIZE) ? PAGE_SIZE : numberOfUsers - index);
+        log.debug("index={} done", index);
         users.addAll(usersPage);
         index += PAGE_SIZE;
         log.debug("load users {}", index);
