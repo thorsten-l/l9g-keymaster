@@ -18,6 +18,9 @@ package l9g.app.keymaster.service;
 import l9g.app.keymaster.command.SystemCommands;
 import jakarta.ws.rs.core.Response;
 import java.io.IOException;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
@@ -29,6 +32,7 @@ import org.keycloak.admin.client.Keycloak;
 import org.keycloak.admin.client.resource.RoleResource;
 import org.keycloak.representations.idm.ClientRepresentation;
 import org.keycloak.representations.idm.ClientScopeRepresentation;
+import org.keycloak.representations.idm.CredentialRepresentation;
 import org.keycloak.representations.idm.RealmRepresentation;
 import org.keycloak.representations.idm.RoleRepresentation;
 import org.keycloak.representations.idm.UserRepresentation;
@@ -487,6 +491,29 @@ public class KeycloakService
         user.getAttributes().forEach((key, value) -> System.out.println("  - '" + key + "' = " + value));
       }
 
+      // Credentials
+      List<CredentialRepresentation> credentials = keycloak.realm(realm).users().get(userId).credentials();
+      if(credentials != null &&  ! credentials.isEmpty())
+      {
+        DateTimeFormatter formatter = DateTimeFormatter
+          .ofPattern("yyyy-MM-dd HH:mm:ss")
+          .withZone(ZoneId.systemDefault());
+
+        System.out.println("\nCredentials:");
+        credentials.stream()
+          .sorted((c1, c2) -> c1.getType().compareToIgnoreCase(c2.getType()))
+          .forEach(credential ->
+          {
+            String created = credential.getCreatedDate() != null
+              ? formatter.format(Instant.ofEpochMilli(credential.getCreatedDate()))
+              : "n/a";
+            String label = credential.getUserLabel() != null
+              ? credential.getUserLabel() : "";
+            System.out.println("  - Type: " + credential.getType()
+              + ", Label: '" + label + "', Created: " + created);
+          });
+      }
+
       // Realm Roles
       List<RoleRepresentation> realmRoles = keycloak.realm(realm).users().get(userId).roles().realmLevel().listAll();
       if( ! realmRoles.isEmpty())
@@ -524,6 +551,57 @@ public class KeycloakService
       System.err.println("Error showing user details for ID '" + userId + "': " + e.getMessage());
       log.error("Error showing user details for ID {}: {}", userId, e.getMessage());
     }
+  }
+
+  public void removeUserCredentialsExceptPassword(String username)
+  {
+    log.info("Removing non-password credentials for user: {}", username);
+
+    List<UserRepresentation> result = keycloak.realm(realm)
+      .users().searchByUsername(username, Boolean.TRUE);
+
+    if(result.isEmpty())
+    {
+      System.out.println("No user found with username '" + username + "'.");
+      return;
+    }
+
+    String userId = result.get(0).getId();
+    List<CredentialRepresentation> credentials = keycloak.realm(realm)
+      .users().get(userId).credentials();
+
+    if(credentials == null || credentials.isEmpty())
+    {
+      System.out.println("User '" + username + "' has no credentials.");
+      return;
+    }
+
+    int removed = 0;
+    for(CredentialRepresentation credential : credentials)
+    {
+      if(CredentialRepresentation.PASSWORD.equalsIgnoreCase(credential.getType()))
+      {
+        continue;
+      }
+
+      try
+      {
+        keycloak.realm(realm).users().get(userId).removeCredential(credential.getId());
+        System.out.println("Removed credential: type=" + credential.getType()
+          + ", label='" + (credential.getUserLabel() != null ? credential.getUserLabel() : "")
+          + "', id=" + credential.getId());
+        removed++;
+      }
+      catch(Exception e)
+      {
+        System.err.println("Failed to remove credential " + credential.getId()
+          + " (" + credential.getType() + "): " + e.getMessage());
+        log.error("Failed to remove credential {} for user {}: {}",
+          credential.getId(), username, e.getMessage());
+      }
+    }
+
+    System.out.println("Removed " + removed + " credential(s) for user '" + username + "'.");
   }
 
   public void showClient(String clientName)

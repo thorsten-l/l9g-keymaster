@@ -108,4 +108,13 @@ public class KeycloakCommands
   {
     keycloakService.showClient(clientName);
   }
+
+  @Command(command = "remove-user-credentials-except-password",
+    description = "remove all credentials of a user except password")
+  public void removeUserCredentialsExceptPassword(
+    @Option(description = "Username", required = true) String username)
+    throws Throwable
+  {
+    keycloakService.removeUserCredentialsExceptPassword(username);
+  }
 }
