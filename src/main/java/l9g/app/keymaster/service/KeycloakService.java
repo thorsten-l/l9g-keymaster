@@ -15,8 +15,11 @@
  */
 package l9g.app.keymaster.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
 import l9g.app.keymaster.command.SystemCommands;
 import jakarta.ws.rs.core.Response;
+import java.io.File;
 import java.io.IOException;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -24,12 +27,18 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
 import org.keycloak.admin.client.Keycloak;
+import org.keycloak.admin.client.resource.AuthenticationManagementResource;
 import org.keycloak.admin.client.resource.RoleResource;
+import org.keycloak.representations.idm.AuthenticationExecutionInfoRepresentation;
+import org.keycloak.representations.idm.AuthenticationFlowRepresentation;
+import org.keycloak.representations.idm.AuthenticatorConfigRepresentation;
 import org.keycloak.representations.idm.ClientRepresentation;
 import org.keycloak.representations.idm.ClientScopeRepresentation;
 import org.keycloak.representations.idm.CredentialRepresentation;
@@ -602,6 +611,284 @@ public class KeycloakService
     }
 
     System.out.println("Removed " + removed + " credential(s) for user '" + username + "'.");
+  }
+
+  public void exportRealm(String fileName)
+  {
+    log.info("Exporting realm '{}' to file '{}'", realm, fileName);
+
+    if(fileName == null || fileName.isBlank())
+    {
+      System.err.println("Filename must not be empty.");
+      return;
+    }
+
+    try
+    {
+      RealmRepresentation realmRepresentation = keycloak.realm(realm)
+        .partialExport(true, true);
+
+      ObjectMapper mapper = new ObjectMapper();
+      mapper.enable(SerializationFeature.INDENT_OUTPUT);
+      mapper.writeValue(new File(fileName), realmRepresentation);
+
+      System.out.println("Realm '" + realm + "' exported to '" + fileName + "'.");
+    }
+    catch(IOException e)
+    {
+      System.err.println("Failed to write realm export to '" + fileName + "': " + e.getMessage());
+      log.error("Failed to write realm export to {}: {}", fileName, e.getMessage());
+    }
+    catch(Exception e)
+    {
+      System.err.println("Error exporting realm '" + realm + "': " + e.getMessage());
+      log.error("Error exporting realm {}: {}", realm, e.getMessage());
+    }
+  }
+
+  public void exportAuthenticationFlow(String flowName, String fileName)
+  {
+    log.info("Exporting authentication flow '{}' of realm '{}' to file '{}'",
+      flowName, realm, fileName);
+
+    if(flowName == null || flowName.isBlank())
+    {
+      System.err.println("Flow name must not be empty.");
+      return;
+    }
+
+    if(fileName == null || fileName.isBlank())
+    {
+      System.err.println("Filename must not be empty.");
+      return;
+    }
+
+    try
+    {
+      AuthenticationManagementResource flows = keycloak.realm(realm).flows();
+
+      AuthenticationFlowRepresentation flow = flows.getFlows().stream()
+        .filter(f -> flowName.equals(f.getAlias()))
+        .findFirst()
+        .orElse(null);
+
+      if(flow == null)
+      {
+        System.err.println("Authentication flow '" + flowName + "' not found in realm '" + realm + "'.");
+        return;
+      }
+
+      List<AuthenticationExecutionInfoRepresentation> executions =
+        flows.getExecutions(flow.getAlias());
+
+      Map<String, AuthenticatorConfigRepresentation> authenticatorConfigs = new LinkedHashMap<>();
+      for(AuthenticationExecutionInfoRepresentation execution : executions)
+      {
+        String configId = execution.getAuthenticationConfig();
+        if(configId != null &&  ! configId.isBlank() &&  ! authenticatorConfigs.containsKey(configId))
+        {
+          try
+          {
+            AuthenticatorConfigRepresentation config = flows.getAuthenticatorConfig(configId);
+            authenticatorConfigs.put(configId, config);
+          }
+          catch(Exception e)
+          {
+            log.warn("Could not fetch authenticator config '{}': {}", configId, e.getMessage());
+          }
+        }
+      }
+
+      Map<String, Object> export = new LinkedHashMap<>();
+      export.put("realm", realm);
+      export.put("flow", flow);
+      export.put("executions", executions);
+      export.put("authenticatorConfigs", authenticatorConfigs);
+
+      ObjectMapper mapper = new ObjectMapper();
+      mapper.enable(SerializationFeature.INDENT_OUTPUT);
+      mapper.writeValue(new File(fileName), export);
+
+      System.out.println("Authentication flow '" + flowName + "' exported to '" + fileName + "'.");
+    }
+    catch(IOException e)
+    {
+      System.err.println("Failed to write flow export to '" + fileName + "': " + e.getMessage());
+      log.error("Failed to write flow export to {}: {}", fileName, e.getMessage());
+    }
+    catch(Exception e)
+    {
+      System.err.println("Error exporting authentication flow '" + flowName + "': " + e.getMessage());
+      log.error("Error exporting authentication flow {}: {}", flowName, e.getMessage());
+    }
+  }
+
+  public void importRealm(String fileName)
+  {
+    log.info("Importing realm from file '{}'", fileName);
+
+    if(fileName == null || fileName.isBlank())
+    {
+      System.err.println("Filename must not be empty.");
+      return;
+    }
+
+    File file = new File(fileName);
+    if( ! file.isFile() ||  ! file.canRead())
+    {
+      System.err.println("File '" + fileName + "' does not exist or is not readable.");
+      return;
+    }
+
+    try
+    {
+      ObjectMapper mapper = new ObjectMapper();
+      RealmRepresentation realmRepresentation =
+        mapper.readValue(file, RealmRepresentation.class);
+
+      String targetRealm = realmRepresentation.getRealm();
+      if(targetRealm == null || targetRealm.isBlank())
+      {
+        System.err.println("Realm representation in '" + fileName + "' has no 'realm' attribute.");
+        return;
+      }
+
+      keycloak.realms().create(realmRepresentation);
+      System.out.println("Realm '" + targetRealm + "' imported from '" + fileName + "'.");
+    }
+    catch(IOException e)
+    {
+      System.err.println("Failed to read realm import from '" + fileName + "': " + e.getMessage());
+      log.error("Failed to read realm import from {}: {}", fileName, e.getMessage());
+    }
+    catch(Exception e)
+    {
+      System.err.println("Error importing realm from '" + fileName + "': " + e.getMessage());
+      log.error("Error importing realm from {}: {}", fileName, e.getMessage());
+    }
+  }
+
+  public void importAuthenticationFlow(String fileName)
+  {
+    log.info("Importing authentication flow from file '{}' into realm '{}'",
+      fileName, realm);
+
+    if(fileName == null || fileName.isBlank())
+    {
+      System.err.println("Filename must not be empty.");
+      return;
+    }
+
+    File file = new File(fileName);
+    if( ! file.isFile() ||  ! file.canRead())
+    {
+      System.err.println("File '" + fileName + "' does not exist or is not readable.");
+      return;
+    }
+
+    try
+    {
+      ObjectMapper mapper = new ObjectMapper();
+      Map<String, Object> data = mapper.readValue(file, new com.fasterxml.jackson.core.type.TypeReference<Map<String, Object>>() {});
+
+      Object flowNode = data.get("flow");
+      if(flowNode == null)
+      {
+        System.err.println("File '" + fileName + "' contains no 'flow' attribute.");
+        return;
+      }
+
+      AuthenticationFlowRepresentation flow = mapper.convertValue(
+        flowNode, AuthenticationFlowRepresentation.class);
+
+      flow.setId(null);
+
+      AuthenticationManagementResource flows = keycloak.realm(realm).flows();
+
+      boolean exists = flows.getFlows().stream()
+        .anyMatch(f -> flow.getAlias().equals(f.getAlias()));
+      if(exists)
+      {
+        System.err.println("Authentication flow '" + flow.getAlias()
+          + "' already exists in realm '" + realm + "'.");
+        return;
+      }
+
+      try(Response response = flows.createFlow(flow))
+      {
+        handleFlowCreateResponse(response, flow.getAlias());
+        if(response.getStatusInfo().getFamily() != Response.Status.Family.SUCCESSFUL)
+        {
+          return;
+        }
+      }
+
+      Object configsNode = data.get("authenticatorConfigs");
+      if(configsNode instanceof Map<?, ?> rawConfigs &&  ! rawConfigs.isEmpty())
+      {
+        Map<String, AuthenticatorConfigRepresentation> configs =
+          mapper.convertValue(rawConfigs,
+            new com.fasterxml.jackson.core.type.TypeReference<Map<String, AuthenticatorConfigRepresentation>>() {});
+
+        List<AuthenticationExecutionInfoRepresentation> importedExecutions =
+          flows.getExecutions(flow.getAlias());
+
+        Object executionsNode = data.get("executions");
+        List<AuthenticationExecutionInfoRepresentation> originalExecutions =
+          executionsNode != null
+            ? mapper.convertValue(executionsNode,
+                new com.fasterxml.jackson.core.type.TypeReference<List<AuthenticationExecutionInfoRepresentation>>() {})
+            : List.of();
+
+        for(int i = 0; i < importedExecutions.size() && i < originalExecutions.size(); i++)
+        {
+          AuthenticationExecutionInfoRepresentation imported = importedExecutions.get(i);
+          AuthenticationExecutionInfoRepresentation original = originalExecutions.get(i);
+          String originalConfigId = original.getAuthenticationConfig();
+          if(originalConfigId != null && imported.getAuthenticationConfig() == null
+            && configs.containsKey(originalConfigId))
+          {
+            AuthenticatorConfigRepresentation cfg = configs.get(originalConfigId);
+            AuthenticatorConfigRepresentation cleanCfg = new AuthenticatorConfigRepresentation();
+            cleanCfg.setAlias(cfg.getAlias());
+            cleanCfg.setConfig(cfg.getConfig());
+            try(Response cfgResponse = flows.newExecutionConfig(imported.getId(), cleanCfg))
+            {
+              if(cfgResponse.getStatusInfo().getFamily() != Response.Status.Family.SUCCESSFUL)
+              {
+                log.warn("Failed to attach authenticator config '{}' to execution '{}': HTTP {}",
+                  cfg.getAlias(), imported.getId(), cfgResponse.getStatus());
+              }
+            }
+          }
+        }
+      }
+    }
+    catch(IOException e)
+    {
+      System.err.println("Failed to read flow import from '" + fileName + "': " + e.getMessage());
+      log.error("Failed to read flow import from {}: {}", fileName, e.getMessage());
+    }
+    catch(Exception e)
+    {
+      System.err.println("Error importing authentication flow from '" + fileName + "': " + e.getMessage());
+      log.error("Error importing authentication flow from {}: {}", fileName, e.getMessage());
+    }
+  }
+
+  private void handleFlowCreateResponse(Response response, String alias)
+  {
+    if(response.getStatusInfo().getFamily() == Response.Status.Family.SUCCESSFUL)
+    {
+      System.out.println("Authentication flow '" + alias
+        + "' imported into realm '" + realm + "'.");
+    }
+    else
+    {
+      String error = response.readEntity(String.class);
+      System.err.println("Failed to import authentication flow '" + alias
+        + "': HTTP " + response.getStatus() + " — " + error);
+    }
   }
 
   public void showClient(String clientName)

@@ -15,10 +15,8 @@
  */
 package l9g.app.keymaster.service;
 
-import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import lombok.extern.slf4j.Slf4j;
 import org.keycloak.admin.client.Keycloak;

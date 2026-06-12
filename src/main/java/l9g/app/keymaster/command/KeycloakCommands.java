@@ -117,4 +117,41 @@ public class KeycloakCommands
   {
     keycloakService.removeUserCredentialsExceptPassword(username);
   }
+
+  @Command(command = "export-realm",
+    description = "export the selected realm to a JSON file")
+  public void exportRealm(
+    @Option(description = "target filename (e.g. realm.json)", required = true) String fileName)
+    throws Throwable
+  {
+    keycloakService.exportRealm(fileName);
+  }
+
+  @Command(command = "export-authentication-flow",
+    description = "export an authentication flow (with executions and configs) to a JSON file")
+  public void exportAuthenticationFlow(
+    @Option(description = "authentication flow alias/name", required = true) String flowName,
+    @Option(description = "target filename (e.g. flow.json)", required = true) String fileName)
+    throws Throwable
+  {
+    keycloakService.exportAuthenticationFlow(flowName, fileName);
+  }
+
+  @Command(command = "import-realm",
+    description = "import a realm from a JSON file")
+  public void importRealm(
+    @Option(description = "source filename (e.g. realm.json)", required = true) String fileName)
+    throws Throwable
+  {
+    keycloakService.importRealm(fileName);
+  }
+
+  @Command(command = "import-authentication-flow",
+    description = "import an authentication flow (with executions and configs) into the selected realm")
+  public void importAuthenticationFlow(
+    @Option(description = "source filename (e.g. flow.json)", required = true) String fileName)
+    throws Throwable
+  {
+    keycloakService.importAuthenticationFlow(fileName);
+  }
 }
